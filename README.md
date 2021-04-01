@@ -1,3 +1,109 @@
+# Tigress-Protection踩坑记录
+ubuntu 1804
+## 1、triton
+triton的版本要选择0.8或者0.8.1，pintools保持原版本不变，这里triton配套使用的一定是capstone4.0.1及以上版本。  
+cmake命令为：  
+```
+cmake -G "Unix Makefiles" -DPINTOOL=on -DKERNEL4=on -DPYTHON36=off ..
+```
+注意要关闭python36，使用python27
+
+如果明明已经安装了capstone4但还出现错误：x8664Cpu::disassembly(): Invalid operand.  
+这里99%是因为你之前的环境安装过capstone3没删除干净，triton编译过程中虽然使用了capstone4的头文件，但在链接过程中又链接了capstone3。  
+诊断这个问题比较容易，使用capstone反编译指令31 ed：
+```
+#include <capstone/platform.h>
+#include <capstone/capstone.h>
+
+int main()
+{
+    csh handle;
+    char codes[] = "\x31\xed";
+    cs_open(CS_ARCH_X86, CS_MODE_64, &handle);
+    cs_option(handle, CS_OPT_DETAIL, CS_OPT_ON);
+    cs_insn *insn = 0;
+    int count = cs_disasm(handle, codes, sizeof(codes)-1, 0, 0, &insn);
+    if(count > 0)
+    {
+        cs_x86 * x86 = &(insn[0].detail->x86);
+        for (size_t i = 0; i < x86->op_count; ++i)
+        {
+            cs_x86_op *op = &(x86->operands[i]);
+            printf("optype = %d\n", op->type);
+        }
+        
+        printf("0x%" PRIx64 ": ", insn[0].address);
+        printf("\t%s\t%s\n", insn[0].mnemonic, insn[0].op_str);
+        {
+            if (x86->op_count)
+                printf("\top_count: %u\n", x86->op_count);
+
+            // Print out all operands
+            for (int j = 0; j < x86->op_count; j++) {
+                cs_x86_op *op = &(x86->operands[j]);
+
+                switch ((int)op->type) {
+                case X86_OP_REG:
+                    printf("\t\toperands[%u].type: REG = %s\n", j, cs_reg_name(handle, op->reg));
+                    break;
+                case X86_OP_IMM:
+                    printf("\t\toperands[%u].type: IMM = 0x%" PRIx64 "\n", j, op->imm);
+                    break;
+                case X86_OP_MEM:
+                    printf("\t\toperands[%u].type: MEM\n", j);
+                    if (op->mem.segment != X86_REG_INVALID)
+                        printf("\t\t\toperands[%u].mem.segment: REG = %s\n", j, cs_reg_name(handle, op->mem.segment));
+                    if (op->mem.base != X86_REG_INVALID)
+                        printf("\t\t\toperands[%u].mem.base: REG = %s\n", j, cs_reg_name(handle, op->mem.base));
+                    if (op->mem.index != X86_REG_INVALID)
+                        printf("\t\t\toperands[%u].mem.index: REG = %s\n", j, cs_reg_name(handle, op->mem.index));
+                    if (op->mem.scale != 1)
+                        printf("\t\t\toperands[%u].mem.scale: %u\n", j, op->mem.scale);
+                    if (op->mem.disp != 0)
+                        printf("\t\t\toperands[%u].mem.disp: 0x%" PRIx64 "\n", j, op->mem.disp);
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
+    }
+    return 0;
+}
+```
+如果输出为
+```
+optype = 20
+0x0: 	xor	ebp, ebp
+	op_count: 1
+```
+则链接了capstone3，如果链接的是capstone4，则输出
+```
+optype = 1
+0x0: 	xor	ebp, ebp
+	op_count: 2
+		operands[0].type: REG = ebp
+		operands[1].type: REG = ebp
+```
+## 2、arybo
+因为pintools不支持python3，所以只能用python2。而arybo这个包用pip2安装又提示requirement networkx==2.4，而这个netwrokx版本2.4又不支持python2，所以只能源码方式安装arybo。  
+下载release-1.0.0.zip, pip install release-1.0.0.zip  
+报错
+'AstNode' object has no attribute 'getChilds'  
+unzip解压，修改arybo/tools/triton_.py: 31行  
+e.getChilds() change to e.getChildren()  
+35行：getKind()修改为Ty = e.getType()  
+50行：TAstN.DECIMAL:改为TAstN.INTEGER:  
+70行：改为       name = e.getSymbolicVariable().getName()  
+78行：改为id_ = e.getSymbolicExpression().getId()  
+安装修改后的包  
+pip uninstall arybo  
+python setup.py build  
+python setup.py install  
+## 3、llvmlite
+ubuntu 1804安装apt上只有llvm 6.0，这个使用llvmlite 0.25存在BUG，会报错"undefined reference to `LLVMInitializeInstCombine'"  
+编译安装llvm 6.0.1，pip install llvmlite-0.25.0.zip重新编译安装llvmlite  
+# ==================================================================
 # Tigress Protections
 
 > [Tigress](http://tigress.cs.arizona.edu/) is a diversifying virtualizer/obfuscator for the C language that supports many novel defenses against both static and dynamic reverse engineering and de-virtualization attacks.
