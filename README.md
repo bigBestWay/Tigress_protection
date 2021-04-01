@@ -1,7 +1,7 @@
 # Tigress-Protection踩坑记录
 ubuntu 1804
 ## 1、triton
-triton的版本要选择0.8或者0.8.1，pintools保持原版本不变，这里triton配套使用的一定是capstone4.0.1及以上版本。  
+编译triton的版本要选择0.8或者0.8.1，pintools保持原版本不变，这里triton配套使用的一定是capstone4.0.1及以上版本。  
 cmake命令为：  
 ```
 cmake -G "Unix Makefiles" -DPINTOOL=on -DKERNEL4=on -DPYTHON36=off ..
